@@ -12,11 +12,11 @@ pub struct Quirks {
 impl Quirks {
     pub fn new() -> Quirks {
         Quirks {
-            shift: false,
+            shift: true,
             memory_increment_by_x: false,
-            memory_leave_i_unchanged: false,
+            memory_leave_i_unchanged: true,
             wrap: false,
-            jump: false,
+            jump: true,
             logic: false,
         }
     }

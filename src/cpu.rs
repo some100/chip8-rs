@@ -1,57 +1,74 @@
 use crate::EmuError;
-use std::time::Instant;
-use rodio::{source::SineWave, OutputStream, OutputStreamHandle, Sink};
+use std::{
+    fs::File,
+    io::{Read, BufReader},
+    time::Instant,
+};
+use rodio::{source::SineWave, Sink};
 use sdl2::keyboard::Keycode;
 
 pub struct Cpu {
     pub rom: Vec<u8>,
     pub memory: [u8; 0x1000],
-    pub display_buffer: [bool; 0x800],
+    pub display_buffer: Vec<bool>,
     pub pc: u16,
     pub i: u16,
     pub stack: Vec<u16>,
     pub delay_timer: u8,
     pub sound_timer: u8,
     pub v: [u8; 0x10],
+    pub flag: [u8; 0x10],
     pub keys: [bool; 0x10],
     pub key_state: bool,
     pub opcode: u16,
+    pub hires: bool,
+    playing: bool,
     past_time: Instant,
-    _stream_handle: OutputStreamHandle,
-    sink: Sink,
 }
 
 impl Cpu {
     pub fn new() -> Result<Cpu, EmuError> {
-        let (_stream, stream_handle) = OutputStream::try_default()?;
-        let sink = Sink::try_new(&stream_handle)?;
+        let flag = match File::open("rpl.txt") {
+            Ok(f) => {
+                let reader = BufReader::new(f);
+                let mut flag: [u8; 0x10] = [0; 0x10];
+                for (i, byte) in reader.bytes().enumerate() {
+                    flag[i] = byte?;
+                }
+                flag
+            },
+            _ => [0; 0x10],
+        };
         Ok(Cpu {
             rom: Vec::new(),
             memory: [0; 0x1000],
-            display_buffer: [false; 0x800],
+            display_buffer: vec![false; 0x800],
             pc: 0x200,
             i: 0,
             stack: Vec::new(),
             delay_timer: 0,
             sound_timer: 0,
             v: [0; 0x10],
+            flag,
             keys: [false; 0x10],
             key_state: false,
             opcode: 0x0000,
+            hires: false,
             past_time: Instant::now(),
-            _stream_handle: stream_handle,
-            sink,
+            playing: false,
         })
     }
-    pub fn tick_timers(&mut self, now_time: Instant) {
+    pub fn tick_timers(&mut self, sink: &Sink, now_time: Instant) {
         if now_time.duration_since(self.past_time).as_micros() > 16670 {
             self.delay_timer = self.delay_timer.saturating_sub(1);
             self.sound_timer = self.sound_timer.saturating_sub(1);
-            if self.sound_timer != 0 {
+            if self.sound_timer != 0 && !self.playing {
                 let beep = SineWave::new(440.0);
-                self.sink.append(beep);
-            } else {
-                self.sink.stop();
+                sink.append(beep);
+                self.playing = true;
+            } else if self.sound_timer == 0 {
+                sink.stop();
+                self.playing = false;
             }
             self.past_time = Instant::now();
         }
@@ -88,5 +105,16 @@ impl Cpu {
             Keycode::V => Some(0xF),
             _ => None,
         }
+    }
+    pub fn get_on_pixels(&mut self) -> (Vec<usize>, usize) {
+        let display_length = self.display_buffer.len();
+        let mut pixels = Vec::new();
+        for i in 0..display_length {
+            if self.display_buffer[i] {
+                pixels.push(i);
+                self.display_buffer[i] = false;
+            }
+        }
+        (pixels, display_length)
     }
 }

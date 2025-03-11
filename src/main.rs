@@ -1,5 +1,4 @@
 #![allow(clippy::struct_excessive_bools)]
-
 mod error;
 mod quirk;
 mod draw;
@@ -12,7 +11,7 @@ use crate::{
 };
 use std::{
     fs::File, 
-    io::Read,
+    io::{Read, Write, BufWriter},
     time::{Duration, Instant},
 };
 use draw::Renderer;
@@ -20,26 +19,46 @@ use sdl2::{
     event::Event, 
     EventPump,
 };
+use rodio::{OutputStream, Sink};
 use frand::Rand;
 use clap::Parser;
 
 const FONT: [u8; 80] = [
-    0xF0, 0x90, 0x90, 0x90, 0xF0,
-    0x20, 0x60, 0x20, 0x20, 0x70,
-    0xF0, 0x10, 0xF0, 0x80, 0xF0,
-    0xF0, 0x10, 0xF0, 0x10, 0xF0,
-    0x90, 0x90, 0xF0, 0x10, 0x10,
-    0xF0, 0x80, 0xF0, 0x10, 0xF0,
-    0xF0, 0x80, 0xF0, 0x90, 0xF0,
-    0xF0, 0x10, 0x20, 0x40, 0x40,
-    0xF0, 0x90, 0xF0, 0x90, 0xF0,
-    0xF0, 0x90, 0xF0, 0x10, 0xF0,
-    0xF0, 0x90, 0xF0, 0x90, 0x90,
-    0xE0, 0x90, 0xE0, 0x90, 0xE0,
-    0xF0, 0x80, 0x80, 0x80, 0xF0,
-    0xE0, 0x90, 0x90, 0x90, 0xE0,
-    0xF0, 0x80, 0xF0, 0x80, 0xF0,
-    0xF0, 0x80, 0xF0, 0x80, 0x80
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
+
+const BIGFONT: [u8; 160] = [
+    0xFF, 0xFF, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, // 0
+    0x18, 0x78, 0x78, 0x18, 0x18, 0x18, 0x18, 0x18, 0xFF, 0xFF, // 1
+    0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, // 2
+    0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, // 3
+    0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, 0x03, 0x03, 0x03, 0x03, // 4
+    0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, // 5
+    0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, // 6
+    0xFF, 0xFF, 0x03, 0x03, 0x06, 0x0C, 0x18, 0x18, 0x18, 0x18, // 7
+    0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, // 8
+    0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, // 9
+    0x7E, 0xFF, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, 0xC3, 0xC3, 0xC3, // A
+    0xFC, 0xFC, 0xC3, 0xC3, 0xFC, 0xFC, 0xC3, 0xC3, 0xFC, 0xFC, // B
+    0x3C, 0xFF, 0xC3, 0xC0, 0xC0, 0xC0, 0xC0, 0xC3, 0xFF, 0x3C, // C
+    0xFC, 0xFE, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xFE, 0xFC, // D
+    0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, // E
+    0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC0, 0xC0, 0xC0, 0xC0  // F
 ];
 
 /// CHIP-8 Interpreter
@@ -58,7 +77,7 @@ fn init() -> Result<(Renderer, Rand, EventPump), EmuError> {
     let video_subsystem = sdl_context.video().map_err(EmuError::Sdl)?;
 
     let window = video_subsystem
-        .window("CHIP-8 Emulator", 1080, 512)
+        .window("CHIP-8 Emulator", 1024, 512)
         .position_centered()
         .build()?;
 
@@ -73,6 +92,8 @@ fn main() -> Result<(), EmuError> {
     let (mut renderer, mut rng, mut event_pump) = init()?;
     let mut cpu = Cpu::new()?;
     let quirks = Quirks::new();
+    let (_stream, stream_handle) = OutputStream::try_default()?;
+    let sink = Sink::try_new(&stream_handle)?;
 
     File::open(args.rom)?.read_to_end(&mut cpu.rom)?;
 
@@ -82,11 +103,17 @@ fn main() -> Result<(), EmuError> {
     for (i, char) in FONT.iter().enumerate() {
         cpu.memory[i] = *char;
     }
+    for (i, char) in BIGFONT.iter().enumerate() {
+        cpu.memory[i + 0x50] = *char;
+    }
 
     loop {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. } => {
+                    let f = File::create("rpl.txt")?;
+                    let mut writer = BufWriter::new(f);
+                    writer.write_all(&cpu.flag)?;
                     return Ok(())
                 }
                 Event::KeyDown { keycode: Some(key), .. } => {
@@ -102,10 +129,12 @@ fn main() -> Result<(), EmuError> {
                 _ => (),
             }
         }
-        cpu.tick_timers(Instant::now());
+        cpu.tick_timers(&sink, Instant::now());
         fetch(&mut cpu);
-        if let Err(e) = decode(&mut cpu, &quirks, &mut rng, &mut renderer) {
-            eprintln!("Got error: {e}");
+        match decode(&mut cpu, &quirks, &mut rng, &mut renderer) {
+            Err(EmuError::Exit()) => break Err(EmuError::Exit()),
+            Err(e) => eprintln!("Error: {e}"),
+            _ => (),
         }
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / args.speed));
     }
@@ -127,6 +156,44 @@ fn decode(cpu: &mut Cpu, quirks: &Quirks, rng: &mut Rand, renderer: &mut Rendere
                     renderer.draw(cpu)?;
                 },
                 0xEE => cpu.pc = cpu.stack.pop().ok_or(EmuError::Stack("Tried to pop from stack but stack is empty".to_owned()))?,
+                _ if y == 0xC => {
+                    let cols = if cpu.hires { 128 } else { 64 };
+                    let (pixels, len) = cpu.get_on_pixels();
+                    for i in pixels {
+                        cpu.display_buffer[(i + cols * (cpu.opcode & 0x000F) as usize) % len] = true;
+                    }
+                },
+                0xFB => {
+                    let (pixels, len) = cpu.get_on_pixels();
+                    for i in pixels {
+                        cpu.display_buffer[(i + 4) % len] = true;
+                    }
+                },
+                0xFC => {
+                    let (pixels, len) = cpu.get_on_pixels();
+                    for i in pixels {
+                        cpu.display_buffer[(i - 4) % len] = true;
+                    }
+                },
+                0xFD => {
+                    return Err(EmuError::Exit());
+                },
+                0xFE => {
+                    if cpu.hires {
+                        cpu.hires = false;
+                        for _ in 0x800..cpu.display_buffer.len() {
+                            cpu.display_buffer.remove(0x800);
+                        }
+                    }
+                },
+                0xFF => {
+                    if !cpu.hires {
+                        cpu.hires = true;
+                        for _ in 0..0x1800 {
+                            cpu.display_buffer.push(false);
+                        }
+                    }
+                },
                 _ => return Err(EmuError::Invalid(cpu.opcode)),
             }
         },
@@ -156,22 +223,15 @@ fn decode(cpu: &mut Cpu, quirks: &Quirks, rng: &mut Rand, renderer: &mut Rendere
             cpu.v[x] = random & (cpu.opcode & 0x00FF) as u8;
         },
         0xD => {
-            let x = u16::from(cpu.v[x] % 64);
-            let y = u16::from(cpu.v[y] % 32);
+            let cols = if cpu.hires { 128 } else { 64 };
+            let rows = if cpu.hires { 64 } else { 32 };
+            let x = u16::from(cpu.v[x]) % cols;
+            let y = u16::from(cpu.v[y]) % rows;
             cpu.v[0xF] = 0;
-            for row in 0..(cpu.opcode & 0x000F) {
-                for col in 0..8 {
-                    if quirks.wrap || ((y + row < 32) && (x + col < 64)) {
-                        let sprite_pixel = cpu.memory[(cpu.i + row) as usize] & (0x80 >> col);
-                        let screen_pixel = &mut cpu.display_buffer[(((y + row) * 64) + x + col) as usize];
-                        if sprite_pixel != 0 {
-                            if *screen_pixel {
-                                cpu.v[0xF] = 1;
-                            }
-                            *screen_pixel ^= true;
-                        }
-                    }
-                }
+            if cpu.opcode & 0x000F != 0 {
+                draw_sprite(cpu, quirks, x, y);
+            } else {
+                draw_super_sprite(cpu, quirks, x, y);
             }
             renderer.draw(cpu)?;
         },
@@ -259,6 +319,7 @@ fn decode_f(cpu: &mut Cpu, quirks: &Quirks, x: usize) -> Result<(), EmuError> {
             }
         },
         0x29 => cpu.i = u16::from(cpu.v[x]) * 5,
+        0x30 => cpu.i = u16::from(cpu.v[x]) * 5 + 0x50,
         0x33 => {
             cpu.memory[cpu.i as usize] = cpu.v[x] / 100;
             cpu.memory[cpu.i as usize + 1] = (cpu.v[x] / 10) % 10;
@@ -277,8 +338,58 @@ fn decode_f(cpu: &mut Cpu, quirks: &Quirks, x: usize) -> Result<(), EmuError> {
             }
             quirks.memory_increment_by_x(cpu, x)?;
             quirks.memory_leave_i_unchanged(cpu, x)?;
+        },
+        0x75 => {
+            for i in 0..=x {
+                cpu.flag[i] = cpu.v[i];
+            }
+        },
+        0x85 => {
+            for i in 0..=x {
+                cpu.v[i] = cpu.flag[i];
+            }
         }
         _ => return Err(EmuError::Invalid(cpu.opcode)),
     }
     Ok(())
+}
+
+fn draw_sprite(cpu: &mut Cpu, quirks: &Quirks, x: u16, y: u16) {
+    let cols = if cpu.hires { 128 } else { 64 };
+    let rows = if cpu.hires { 64 } else { 32 };
+    for row in 0..(cpu.opcode & 0x000F) {
+        for col in 0..8 {
+            if quirks.wrap || ((y + row < rows) && (x + col < cols)) {
+                let sprite_pixel = cpu.memory[(cpu.i + row) as usize] & (0x80 >> col);
+                let screen_pixel = &mut cpu.display_buffer[(((y + row) * cols) + x + col) as usize];
+                if sprite_pixel != 0 {
+                    if *screen_pixel {
+                        cpu.v[0xF] = 1;
+                    }
+                    *screen_pixel ^= true;
+                }
+            }
+        }
+    }
+}
+
+fn draw_super_sprite(cpu: &mut Cpu, quirks: &Quirks, x: u16, y: u16) {
+    let cols = if cpu.hires { 128 } else { 64 };
+    let rows = if cpu.hires { 64 } else { 32 };
+    for row in 0..16 {
+        let i = usize::from(cpu.i + row * 2);
+        let addr = u16::from_be_bytes([cpu.memory[i], cpu.memory[i + 1]]);
+        for col in 0..16 {
+            if quirks.wrap || ((y + row < rows) && (x + col < cols)) {
+                let sprite_pixel = addr & (0x8000 >> col);
+                let screen_pixel = &mut cpu.display_buffer[(((y + row) * cols) + x + col) as usize];
+                if sprite_pixel != 0 {
+                    if *screen_pixel {
+                        cpu.v[0xF] = 1;
+                    }
+                    *screen_pixel ^= true;
+                }
+            }
+        }
+    }
 }

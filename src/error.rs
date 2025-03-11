@@ -18,6 +18,8 @@ pub enum EmuError {
     Io(#[from] std::io::Error),
     #[error("Stack Error: {0}")]
     Stack(String),
+    #[error("Program exited")]
+    Exit(),
     #[error("Invalid instruction {0}")]
     Invalid(u16),
 }
