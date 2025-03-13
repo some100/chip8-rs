@@ -12,7 +12,7 @@ use crate::{
 use std::{
     fs::File, 
     io::{Read, Write, BufWriter},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use draw::Renderer;
 use sdl2::{
@@ -67,9 +67,12 @@ const BIGFONT: [u8; 160] = [
 struct Args {
     /// The path to the ROM
     rom: String,
-    /// The instructions per second
-    #[arg(short, long, default_value_t = 700)]
+    /// The instructions per frame
+    #[arg(short, long, default_value_t = 11)]
     speed: u32,
+    /// The refresh rate of the program in hz
+    #[arg(short, long, default_value_t = 60)]
+    refresh_rate: u32,
 }
 
 fn init() -> Result<(Renderer, Rand, EventPump), EmuError> {
@@ -129,14 +132,18 @@ fn main() -> Result<(), EmuError> {
                 _ => (),
             }
         }
-        cpu.tick_timers(&sink, Instant::now());
-        fetch(&mut cpu);
-        match decode(&mut cpu, &quirks, &mut rng, &mut renderer) {
-            Err(EmuError::Exit()) => break Err(EmuError::Exit()),
-            Err(e) => eprintln!("Error: {e}"),
-            _ => (),
+        cpu.tick_timers(&sink);
+        for _ in 0..args.speed {
+            fetch(&mut cpu);
+            match decode(&mut cpu, &quirks, &mut rng, &mut renderer) {
+                Err(EmuError::Exit()) => return Err(EmuError::Exit()),
+                Err(e) => eprintln!("Error: {e}"),
+                _ => (),
+            }
         }
-        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / args.speed));
+        if args.refresh_rate > 0 {
+            std::thread::sleep(Duration::new(0, 1_000_000_000u32 / args.refresh_rate));
+        }
     }
 }
 

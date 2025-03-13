@@ -2,7 +2,6 @@ use crate::EmuError;
 use std::{
     fs::File,
     io::{Read, BufReader},
-    time::Instant,
 };
 use rodio::{source::SineWave, Sink};
 use sdl2::keyboard::Keycode;
@@ -23,7 +22,6 @@ pub struct Cpu {
     pub opcode: u16,
     pub hires: bool,
     playing: bool,
-    past_time: Instant,
 }
 
 impl Cpu {
@@ -54,23 +52,19 @@ impl Cpu {
             key_state: false,
             opcode: 0x0000,
             hires: false,
-            past_time: Instant::now(),
             playing: false,
         })
     }
-    pub fn tick_timers(&mut self, sink: &Sink, now_time: Instant) {
-        if now_time.duration_since(self.past_time).as_micros() > 16670 {
-            self.delay_timer = self.delay_timer.saturating_sub(1);
-            self.sound_timer = self.sound_timer.saturating_sub(1);
-            if self.sound_timer != 0 && !self.playing {
-                let beep = SineWave::new(440.0);
-                sink.append(beep);
-                self.playing = true;
-            } else if self.sound_timer == 0 {
-                sink.stop();
-                self.playing = false;
-            }
-            self.past_time = Instant::now();
+    pub fn tick_timers(&mut self, sink: &Sink) {
+        self.delay_timer = self.delay_timer.saturating_sub(1);
+        self.sound_timer = self.sound_timer.saturating_sub(1);
+        if self.sound_timer != 0 && !self.playing {
+            let beep = SineWave::new(440.0);
+            sink.append(beep);
+            self.playing = true;
+        } else if self.sound_timer == 0 {
+            sink.stop();
+            self.playing = false;
         }
     }
     pub fn set_flag_register(&mut self, condition: bool) {
